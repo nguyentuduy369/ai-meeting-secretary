@@ -1,8 +1,8 @@
 import streamlit as st
-import requests
+import google.generativeai as genai
 from datetime import datetime
 import io
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
@@ -11,15 +11,13 @@ from reportlab.lib.units import inch
 # CONFIG
 # ===============================
 
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+model = genai.GenerativeModel("gemini-2.0-flash")
 
-MODEL = "llama3-8b-8192"
 FREE_LIMIT = 10
 
 st.set_page_config(page_title="Thư Ký AI SaaS", layout="centered")
-st.title("📑 Thư Ký AI SaaS PRO")
+st.title("📑 Thư Ký AI SaaS PRO (Gemini)")
 
 # ===============================
 # SESSION
@@ -68,26 +66,24 @@ meeting_text = st.text_area("Nhập nội dung cuộc họp:", height=200)
 audio_file = st.file_uploader("Hoặc tải file audio (.mp3, .wav)", type=["mp3", "wav"])
 
 # ===============================
-# AUDIO TRANSCRIPTION
+# AUDIO TRANSCRIBE (Gemini)
 # ===============================
 
 def transcribe_audio(file):
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}"
-    }
+    audio_bytes = file.read()
 
-    files = {
-        "file": (file.name, file, file.type),
-        "model": (None, "whisper-large-v3")
-    }
+    response = model.generate_content(
+        [
+            {
+                "mime_type": file.type,
+                "data": audio_bytes
+            },
+            "Hãy chuyển toàn bộ nội dung audio thành văn bản tiếng Việt rõ ràng."
+        ]
+    )
 
-    response = requests.post(AUDIO_URL, headers=headers, files=files)
-
-    if response.status_code == 200:
-        return response.json()["text"]
-    else:
-        return f"Lỗi chuyển audio: {response.text}"
+    return response.text
 
 # ===============================
 # GENERATE MINUTES
@@ -107,6 +103,7 @@ Yêu cầu:
 - Tạo bảng KPI
 - Tạo bảng phân công
 - Tự tạo deadline nếu có
+- Trình bày rõ ràng từng mục
 
 Ngày họp: {today}
 
@@ -114,26 +111,8 @@ Nội dung:
 {text}
 """
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": "Bạn là thư ký doanh nghiệp."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2
-    }
-
-    response = requests.post(CHAT_URL, headers=headers, json=data)
-
-    if response.status_code == 200:
-        return response.json()["choices"][0]["message"]["content"]
-    else:
-        return f"Lỗi API: {response.text}"
+    response = model.generate_content(prompt)
+    return response.text
 
 # ===============================
 # MAIN BUTTON
