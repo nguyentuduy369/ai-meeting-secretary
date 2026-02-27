@@ -3,6 +3,7 @@ import google.generativeai as genai
 import os
 from datetime import datetime
 import tempfile
+import mimetypes
 
 # ==============================
 # CẤU HÌNH TRANG
@@ -13,7 +14,7 @@ st.title("📝 AI Thư Ký Cuộc Họp")
 st.write("Ứng dụng tự động chuyển ghi âm thành biên bản chuyên nghiệp.")
 
 # ==============================
-# LẤY API KEY
+# API KEY
 # ==============================
 api_key = os.getenv("GEMINI_API_KEY")
 
@@ -24,7 +25,7 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # ==============================
-# LẤY THỜI GIAN HIỆN TẠI
+# THỜI GIAN TỰ ĐỘNG
 # ==============================
 now = datetime.now()
 formatted_time = now.strftime("%H:%M, ngày %d/%m/%Y")
@@ -39,21 +40,23 @@ option = st.radio(
 meeting_text = ""
 
 # ==============================
-# NHẬP TEXT TRỰC TIẾP
+# NHẬP TEXT
 # ==============================
 if option == "Dán nội dung cuộc họp":
     meeting_text = st.text_area("Nhập nội dung cuộc họp:", height=300)
 
 # ==============================
-# UPLOAD FILE GHI ÂM
+# UPLOAD AUDIO (FIX MIME TYPE)
 # ==============================
 elif option == "Tải file ghi âm":
+
     uploaded_file = st.file_uploader(
         "Tải file (.mp3, .wav, .m4a)",
         type=["mp3", "wav", "m4a"]
     )
 
     if uploaded_file is not None:
+
         st.info("Đang xử lý file âm thanh...")
 
         # Lưu file tạm
@@ -61,12 +64,31 @@ elif option == "Tải file ghi âm":
             tmp_file.write(uploaded_file.read())
             temp_path = tmp_file.name
 
+        # Xác định MIME type thủ công
+        mime_type, _ = mimetypes.guess_type(uploaded_file.name)
+
+        if mime_type is None:
+            # fallback an toàn
+            if uploaded_file.name.endswith(".wav"):
+                mime_type = "audio/wav"
+            elif uploaded_file.name.endswith(".mp3"):
+                mime_type = "audio/mpeg"
+            elif uploaded_file.name.endswith(".m4a"):
+                mime_type = "audio/mp4"
+            else:
+                mime_type = "audio/wav"
+
         try:
             model = genai.GenerativeModel("gemini-2.5-flash")
 
+            uploaded = genai.upload_file(
+                path=temp_path,
+                mime_type=mime_type
+            )
+
             response = model.generate_content([
-                genai.upload_file(temp_path),
-                "Hãy chuyển toàn bộ nội dung âm thanh này thành văn bản tiếng Việt rõ ràng, đúng ngữ cảnh."
+                uploaded,
+                "Chuyển toàn bộ nội dung âm thanh này thành văn bản tiếng Việt rõ ràng."
             ])
 
             meeting_text = response.text
@@ -89,8 +111,7 @@ if st.button("📋 Tạo biên bản") and meeting_text:
 
     Thời gian họp: {formatted_time}
 
-    Hãy tạo biên bản cuộc họp gồm các phần:
-
+    Hãy tạo biên bản gồm:
     1. Tổng quan cuộc họp
     2. Các quyết định chính
     3. Nhiệm vụ được giao
@@ -98,15 +119,14 @@ if st.button("📋 Tạo biên bản") and meeting_text:
     5. Deadline (nếu có)
 
     Loại bỏ các từ đệm như: ờ, à, thì, kiểu...
-    Viết lại ngắn gọn, chuyên nghiệp, rõ ràng.
+    Viết lại ngắn gọn, chuyên nghiệp.
 
-    Nội dung cuộc họp:
+    Nội dung:
     {meeting_text}
     """
 
     try:
         result = model.generate_content(prompt)
-
         st.subheader("📄 Biên bản cuộc họp")
         st.write(result.text)
 
