@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 from datetime import datetime
 import io
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
@@ -12,12 +13,14 @@ from reportlab.lib.units import inch
 # ===============================
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-2.0-flash")
+
+# Dùng model nhẹ hơn để tránh quota
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 FREE_LIMIT = 10
 
 st.set_page_config(page_title="Thư Ký AI SaaS", layout="centered")
-st.title("📑 Thư Ký AI SaaS PRO (Gemini)")
+st.title("📑 Thư Ký AI SaaS PRO")
 
 # ===============================
 # SESSION
@@ -36,9 +39,6 @@ if "history" not in st.session_state:
 st.sidebar.header("💳 Gói sử dụng")
 remaining = FREE_LIMIT - st.session_state.usage
 st.sidebar.write(f"Lượt miễn phí còn: {remaining}")
-
-if st.sidebar.button("Nâng cấp 99k/tháng"):
-    st.sidebar.success("Demo thanh toán thành công.")
 
 # ===============================
 # TEMPLATE
@@ -59,31 +59,34 @@ template = st.selectbox(
 # INPUT
 # ===============================
 
-st.subheader("📥 Nhập nội dung hoặc tải Audio")
-
 meeting_text = st.text_area("Nhập nội dung cuộc họp:", height=200)
-
-audio_file = st.file_uploader("Hoặc tải file audio (.mp3, .wav)", type=["mp3", "wav"])
+audio_file = st.file_uploader("Tải file audio (.mp3, .wav)", type=["mp3", "wav"])
 
 # ===============================
-# AUDIO TRANSCRIBE (Gemini)
+# AUDIO TRANSCRIBE
 # ===============================
 
 def transcribe_audio(file):
+    try:
+        audio_bytes = file.read()
 
-    audio_bytes = file.read()
+        response = model.generate_content(
+            [
+                {
+                    "mime_type": file.type,
+                    "data": audio_bytes
+                },
+                "Chuyển audio thành văn bản tiếng Việt."
+            ]
+        )
 
-    response = model.generate_content(
-        [
-            {
-                "mime_type": file.type,
-                "data": audio_bytes
-            },
-            "Hãy chuyển toàn bộ nội dung audio thành văn bản tiếng Việt rõ ràng."
-        ]
-    )
+        return response.text
 
-    return response.text
+    except ResourceExhausted:
+        return "⚠️ Đã vượt quota Gemini. Vui lòng chờ vài phút rồi thử lại."
+
+    except Exception as e:
+        return f"Lỗi audio: {str(e)}"
 
 # ===============================
 # GENERATE MINUTES
@@ -96,23 +99,28 @@ def generate_minutes(text):
     prompt = f"""
 Bạn là thư ký doanh nghiệp chuyên nghiệp.
 
-Tạo biên bản họp chuẩn doanh nghiệp cho loại: {template}
+Tạo biên bản họp cho loại: {template}
 
-Yêu cầu:
-- Trang trọng
 - Tạo bảng KPI
 - Tạo bảng phân công
-- Tự tạo deadline nếu có
-- Trình bày rõ ràng từng mục
+- Tự thêm deadline nếu có
+- Văn phong trang trọng
 
-Ngày họp: {today}
+Ngày: {today}
 
 Nội dung:
 {text}
 """
 
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+
+    except ResourceExhausted:
+        return "⚠️ Đã vượt quota Gemini. Vui lòng thử lại sau."
+
+    except Exception as e:
+        return f"Lỗi AI: {str(e)}"
 
 # ===============================
 # MAIN BUTTON
@@ -125,7 +133,7 @@ if st.button("🚀 Tạo Biên Bản"):
         st.stop()
 
     if audio_file:
-        with st.spinner("Đang chuyển audio thành text..."):
+        with st.spinner("Đang xử lý audio..."):
             meeting_text = transcribe_audio(audio_file)
 
     if meeting_text:
@@ -143,10 +151,7 @@ if st.button("🚀 Tạo Biên Bản"):
             "content": result
         })
 
-        # ===============================
         # EXPORT PDF
-        # ===============================
-
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4)
         styles = getSampleStyleSheet()
