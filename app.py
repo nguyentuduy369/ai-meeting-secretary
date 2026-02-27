@@ -164,7 +164,8 @@ else:
 
     title_style = ParagraphStyle(
         name='TitleStyle',
-        fontName='STSong-Light',
+        fontName=font_name ,
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
         fontSize=16,
         leading=20
     )
