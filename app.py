@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 from reportlab.lib import colors
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib import pagesizes
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase import pdfmetrics
@@ -22,22 +22,22 @@ st.title("📄 Thư Ký AI Chuẩn Doanh Nghiệp")
 st.write("Tạo biên bản họp chuyên nghiệp từ nội dung cuộc họp.")
 
 # =============================
-# API KEY (ỔN ĐỊNH CLOUD + LOCAL)
+# API KEY (FIX TRIỆT ĐỂ)
 # =============================
 
 api_key = None
 
-# 1. Ưu tiên đọc từ Streamlit Secrets (Cloud)
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
+try:
+    api_key = st.secrets.get("GOOGLE_API_KEY")
+except Exception:
+    api_key = None
 
-# 2. Nếu không có thì đọc từ biến môi trường (Local)
-elif os.getenv("GOOGLE_API_KEY"):
-    api_key = os.getenv("GOOGLE_API_KEY")
-
-# 3. Nếu vẫn không có → báo lỗi rõ ràng
 if not api_key:
-    st.error("❌ Không tìm thấy GOOGLE_API_KEY. Vui lòng kiểm tra Secrets hoặc biến môi trường.")
+    api_key = os.environ.get("GOOGLE_API_KEY")
+
+if not api_key:
+    st.error("❌ Không tìm thấy GOOGLE_API_KEY.")
+    st.info("Kiểm tra Streamlit → Manage App → Settings → Secrets")
     st.stop()
 
 genai.configure(api_key=api_key)
@@ -72,7 +72,7 @@ Yêu cầu:
 
 
 # =============================
-# HÀM TẠO PDF CHUẨN DOANH NGHIỆP (KHÔNG LỖI FONT)
+# HÀM TẠO PDF (KHÔNG LỖI FONT)
 # =============================
 def generate_enterprise_pdf(content_text):
 
@@ -89,7 +89,7 @@ def generate_enterprise_pdf(content_text):
 
     elements = []
 
-    # Đăng ký font Unicode có sẵn (không cần upload)
+    # Font Unicode có sẵn trong reportlab
     pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
 
     style_company = ParagraphStyle(
@@ -163,7 +163,7 @@ meeting_input = st.text_area(
 
 if st.button("🚀 Tạo Biên Bản"):
 
-    if meeting_input.strip() == "":
+    if not meeting_input.strip():
         st.warning("Vui lòng nhập nội dung cuộc họp.")
     else:
         with st.spinner("Đang tạo biên bản..."):
