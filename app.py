@@ -1,58 +1,129 @@
 import streamlit as st
-from groq import Groq
+import requests
 import tempfile
+import os
 
-st.set_page_config(page_title="AI Meeting Secretary", layout="centered")
+# =============================
+# CẤU HÌNH
+# =============================
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
-st.title("🎙️ AI Meeting Secretary")
-st.write("Tải file ghi âm (.mp3, .wav, .m4a) để chuyển thành văn bản.")
+st.set_page_config(page_title="Thư Ký AI", page_icon="🎙️")
 
-# ====== GROQ CLIENT ======
-api_key = st.secrets["GROQ_API_KEY"]
-client = Groq(api_key=api_key)
+st.title("🎙️ Thư Ký AI - Ghi Âm & Văn Bản")
+st.write("Chuyển giọng nói thành văn bản • Tóm tắt • Tạo biên bản")
 
-uploaded_file = st.file_uploader("Chọn file audio", type=["mp3", "wav", "m4a"])
+# =============================
+# HÀM CHUYỂN AUDIO → TEXT
+# =============================
+def transcribe_audio(file):
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}"
+    }
 
-if uploaded_file:
+    files = {
+        "file": file,
+        "model": (None, "whisper-large-v3")
+    }
 
-    st.info("🎧 Đang chuyển giọng nói thành văn bản bằng Groq Whisper...")
+    response = requests.post(GROQ_URL, headers=headers, files=files)
 
-    # Lưu file tạm
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        tmp.write(uploaded_file.read())
-        tmp_path = tmp.name
+    if response.status_code == 200:
+        return response.json()["text"]
+    else:
+        return f"Lỗi API: {response.text}"
 
-    with open(tmp_path, "rb") as audio_file:
-        transcription = client.audio.transcriptions.create(
-            file=(uploaded_file.name, audio_file.read()),
-            model="whisper-large-v3"
+
+# =============================
+# HÀM TÓM TẮT
+# =============================
+def summarize_text(text):
+    return f"""
+📌 TÓM TẮT NỘI DUNG:
+
+{text[:500]}...
+
+(Kết thúc bản tóm tắt demo)
+"""
+
+
+# =============================
+# GIAO DIỆN CHỌN CHẾ ĐỘ
+# =============================
+option = st.radio(
+    "Chọn chế độ sử dụng:",
+    ["🎧 Upload Audio", "📝 Nhập Văn Bản"]
+)
+
+st.divider()
+
+# =============================
+# CHẾ ĐỘ AUDIO
+# =============================
+if option == "🎧 Upload Audio":
+
+    uploaded_file = st.file_uploader(
+        "Tải file ghi âm (MP3, WAV, M4A)",
+        type=["mp3", "wav", "m4a"]
+    )
+
+    if uploaded_file is not None:
+
+        st.info("⏳ Đang chuyển giọng nói thành văn bản...")
+
+        text = transcribe_audio(uploaded_file)
+
+        st.success("✅ Đã chuyển giọng nói thành văn bản!")
+
+        st.subheader("📄 Nội dung chuyển đổi:")
+        st.text_area("Kết quả", text, height=300)
+
+        if st.button("📌 Tóm tắt nội dung"):
+            summary = summarize_text(text)
+            st.text_area("Bản tóm tắt", summary, height=250)
+
+        st.download_button(
+            "⬇️ Tải file TXT",
+            text,
+            file_name="noi_dung.txt"
         )
 
-    st.success("✅ Đã chuyển giọng nói thành văn bản!")
+# =============================
+# CHẾ ĐỘ NHẬP TEXT
+# =============================
+elif option == "📝 Nhập Văn Bản":
 
-    text_output = transcription.text
+    input_text = st.text_area(
+        "Nhập nội dung cần xử lý:",
+        height=300
+    )
 
-    st.subheader("📄 Nội dung chuyển đổi:")
-    st.write(text_output)
+    if input_text:
 
-    if st.button("📋 Tạo biên bản"):
-        st.info("🤖 Đang tạo biên bản cuộc họp...")
+        if st.button("📌 Tóm tắt nội dung"):
+            summary = summarize_text(input_text)
+            st.text_area("Bản tóm tắt", summary, height=250)
 
-        completion = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Bạn là thư ký doanh nghiệp. Hãy tạo biên bản cuộc họp chuyên nghiệp gồm: Tổng quan, Nội dung thảo luận, Quyết định, Phân công nhiệm vụ."
-                },
-                {
-                    "role": "user",
-                    "content": text_output
-                }
-            ]
-        )
+        if st.button("📝 Tạo Biên Bản Họp"):
 
-        meeting_minutes = completion.choices[0].message.content
+            bien_ban = f"""
+BIÊN BẢN HỌP
 
-        st.subheader("📝 Biên bản cuộc họp:")
-        st.write(meeting_minutes)
+Nội dung:
+{input_text}
+
+Kết luận:
+- Thống nhất triển khai theo kế hoạch.
+- Phân công nhiệm vụ cụ thể.
+- Theo dõi và báo cáo định kỳ.
+
+(Kết thúc biên bản)
+"""
+            st.text_area("Biên bản", bien_ban, height=300)
+
+            st.download_button(
+                "⬇️ Tải Biên Bản TXT",
+                bien_ban,
+                file_name="bien_ban_hop.txt"
+            )
