@@ -11,7 +11,6 @@ st.write("Tải file ghi âm (.mp3, .wav, .m4a) để chuyển thành văn bản
 api_key = st.secrets["GROQ_API_KEY"]
 client = Groq(api_key=api_key)
 
-# ====== UPLOAD FILE ======
 uploaded_file = st.file_uploader("Chọn file audio", type=["mp3", "wav", "m4a"])
 
 if uploaded_file:
@@ -25,7 +24,7 @@ if uploaded_file:
 
     with open(tmp_path, "rb") as audio_file:
         transcription = client.audio.transcriptions.create(
-            file=audio_file,
+            file=(uploaded_file.name, audio_file.read()),
             model="whisper-large-v3"
         )
 
@@ -36,7 +35,6 @@ if uploaded_file:
     st.subheader("📄 Nội dung chuyển đổi:")
     st.write(text_output)
 
-    # ====== TẠO BIÊN BẢN ======
     if st.button("📋 Tạo biên bản"):
         st.info("🤖 Đang tạo biên bản cuộc họp...")
 
