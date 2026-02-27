@@ -1,5 +1,7 @@
 streamlit
 google-generativeai
+requests
+reportlab
 groq
-ffmpeg-python
-pydub
+
+
