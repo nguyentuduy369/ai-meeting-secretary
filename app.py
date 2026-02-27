@@ -1,44 +1,97 @@
 import streamlit as st
-from datetime import datetime, timedelta
 import requests
-from docx import Document
+from datetime import datetime
+import json
+import os
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import inch
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from reportlab.platypus import Image
+from reportlab.lib.styles import getSampleStyleSheet
 import io
 
-# ========================
-# CẤU HÌNH
-# ========================
+# ===============================
+# CONFIG
+# ===============================
+
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-st.set_page_config(page_title="Thư Ký AI PRO", layout="centered")
-st.title("📑 Thư Ký AI PRO – Chuẩn Doanh Nghiệp")
+FREE_LIMIT = 10
+PRICE = "99.000 VNĐ / tháng"
 
-# ========================
-# INPUT TEXT
-# ========================
-meeting_text = st.text_area("Nhập nội dung cuộc họp:", height=300)
+st.set_page_config(page_title="Thư Ký AI SaaS", layout="centered")
+st.title("📑 Thư Ký AI SaaS")
 
-# ========================
-# HÀM GỌI AI
-# ========================
-def generate_minutes(text):
+# ===============================
+# SESSION STATE
+# ===============================
+
+if "usage_count" not in st.session_state:
+    st.session_state.usage_count = 0
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# ===============================
+# SUBSCRIPTION SIMULATION
+# ===============================
+
+st.sidebar.header("💳 Gói sử dụng")
+
+st.sidebar.write(f"Miễn phí còn lại: {FREE_LIMIT - st.session_state.usage_count}")
+
+upgrade = st.sidebar.button("Nâng cấp gói 99k/tháng")
+
+if upgrade:
+    st.sidebar.success("Tính năng thanh toán demo. (Có thể tích hợp Momo sau)")
+
+# ===============================
+# TEMPLATE SELECT
+# ===============================
+
+template = st.selectbox(
+    "Chọn loại cuộc họp:",
+    [
+        "Họp Marketing",
+        "Họp Nội Bộ",
+        "Họp Chiến Lược",
+        "Họp Startup",
+        "Họp Báo Cáo KPI"
+    ]
+)
+
+# ===============================
+# INPUT
+# ===============================
+
+meeting_text = st.text_area("Nhập nội dung cuộc họp:", height=250)
+
+# ===============================
+# AI FUNCTION
+# ===============================
+
+def generate_minutes(text, template_type):
 
     today = datetime.now().strftime("%d/%m/%Y")
 
     prompt = f"""
-Bạn là Thư ký Doanh nghiệp chuyên nghiệp.
+Bạn là thư ký doanh nghiệp chuyên nghiệp.
 
-Hãy tạo biên bản họp chuẩn doanh nghiệp.
-
-Ngày họp: {today}
+Tạo biên bản họp chuẩn doanh nghiệp cho loại: {template_type}
 
 Yêu cầu:
-- Loại bỏ tranh luận.
-- Chỉ giữ quyết định cuối.
-- Chuẩn hóa KPI.
-- Tạo bảng KPI.
-- Tạo bảng phân công và deadline.
-- Trình bày chuyên nghiệp.
+- Loại bỏ tranh luận
+- Chỉ giữ quyết định cuối
+- Tạo bảng KPI
+- Tạo bảng phân công
+- Trình bày trang trọng
+
+Ngày họp: {today}
 
 Nội dung:
 {text}
@@ -52,7 +105,7 @@ Nội dung:
     data = {
         "model": "llama3-70b-8192",
         "messages": [
-            {"role": "system", "content": "Bạn là thư ký doanh nghiệp chuyên nghiệp."},
+            {"role": "system", "content": "Bạn là thư ký doanh nghiệp."},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2
@@ -65,31 +118,60 @@ Nội dung:
     else:
         return f"Lỗi API: {response.text}"
 
-# ========================
-# TẠO BIÊN BẢN
-# ========================
-if st.button("🚀 Tạo Biên Bản Chuẩn Doanh Nghiệp") and meeting_text:
+# ===============================
+# GENERATE
+# ===============================
 
-    with st.spinner("Đang xử lý..."):
-        result = generate_minutes(meeting_text)
+if st.button("🚀 Tạo Biên Bản"):
 
-    st.subheader("📄 Biên bản hoàn chỉnh")
-    st.write(result)
+    if st.session_state.usage_count >= FREE_LIMIT:
+        st.error("Bạn đã hết lượt miễn phí. Vui lòng nâng cấp gói.")
+    elif meeting_text:
 
-    # ========================
-    # XUẤT DOCX
-    # ========================
-    doc = Document()
-    doc.add_heading("BIÊN BẢN HỌP", level=1)
-    doc.add_paragraph(result)
+        with st.spinner("Đang xử lý..."):
+            result = generate_minutes(meeting_text, template)
 
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
+        st.session_state.usage_count += 1
 
-    st.download_button(
-        "⬇️ Tải file DOCX",
-        buffer,
-        file_name="Bien_Ban_Hop_Doanh_Nghiep.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+        st.subheader("📄 Biên bản")
+        st.write(result)
+
+        # Save history
+        st.session_state.history.append({
+            "date": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "content": result
+        })
+
+        # ===============================
+        # EXPORT PDF
+        # ===============================
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        elements.append(Paragraph("<b>BIÊN BẢN HỌP</b>", styles["Title"]))
+        elements.append(Spacer(1, 0.5 * inch))
+        elements.append(Paragraph(result.replace("\n", "<br/>"), styles["Normal"]))
+
+        doc.build(elements)
+        buffer.seek(0)
+
+        st.download_button(
+            "⬇️ Tải PDF",
+            buffer,
+            file_name="Bien_Ban_Hop.pdf",
+            mime="application/pdf"
+        )
+
+# ===============================
+# HISTORY
+# ===============================
+
+st.divider()
+st.subheader("📚 Lịch sử họp")
+
+for item in reversed(st.session_state.history):
+    with st.expander(f"📅 {item['date']}"):
+        st.write(item["content"])
