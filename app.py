@@ -1,96 +1,75 @@
 import streamlit as st
-import google.generativeai as genai
-import os
-from datetime import datetime
 from groq import Groq
+import os
+from pydub import AudioSegment
+import tempfile
 
-# ==============================
-# CẤU HÌNH TRANG
-# ==============================
-st.set_page_config(page_title="AI Thư Ký Doanh Nghiệp", layout="centered")
+st.set_page_config(page_title="AI Meeting Secretary", layout="centered")
 
-st.title("📝 AI Thư Ký Cuộc Họp (Groq + Gemini)")
-st.write("Upload file ghi âm → Chuyển thành văn bản → Tạo biên bản chuyên nghiệp")
+st.title("🎙️ AI Meeting Secretary")
+st.write("Tải file ghi âm (.mp3, .wav, .m4a) để chuyển thành văn bản.")
 
-# ==============================
-# API KEYS
-# ==============================
-gemini_key = os.getenv("GEMINI_API_KEY")
-groq_key = os.getenv("GROQ_API_KEY")
+# ====== GROQ CLIENT ======
+api_key = st.secrets["GROQ_API_KEY"]
+client = Groq(api_key=api_key)
 
-if not gemini_key or not groq_key:
-    st.error("Thiếu GEMINI_API_KEY hoặc GROQ_API_KEY trong Secrets.")
-    st.stop()
-
-genai.configure(api_key=gemini_key)
-groq_client = Groq(api_key=groq_key)
-
-# ==============================
-# THỜI GIAN TỰ ĐỘNG
-# ==============================
-now = datetime.now()
-formatted_time = now.strftime("%H:%M, ngày %d/%m/%Y")
-
-st.subheader("Tải file ghi âm (.mp3, .wav, .m4a)")
-
+# ====== UPLOAD FILE ======
 uploaded_file = st.file_uploader("Chọn file audio", type=["mp3", "wav", "m4a"])
 
-meeting_text = ""
+if uploaded_file:
 
-# ==============================
-# SPEECH TO TEXT (GROQ WHISPER)
-# ==============================
-if uploaded_file is not None:
+    st.info("🔄 Đang chuẩn hóa audio về 16kHz mono...")
 
-    st.info("Đang chuyển giọng nói thành văn bản bằng Groq Whisper...")
+    # Save file tạm
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(uploaded_file.read())
+        tmp_path = tmp.name
 
-    try:
-        transcription = groq_client.audio.transcriptions.create(
-            file=uploaded_file,
+    # Convert sang 16kHz mono WAV
+    audio = AudioSegment.from_file(tmp_path)
+    audio = audio.set_frame_rate(16000).set_channels(1)
+
+    converted_path = tmp_path + "_converted.wav"
+    audio.export(converted_path, format="wav")
+
+    st.success("✅ Đã chuẩn hóa xong!")
+
+    # ====== TRANSCRIBE ======
+    st.info("🎧 Đang chuyển giọng nói thành văn bản bằng Groq Whisper...")
+
+    with open(converted_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            file=audio_file,
             model="whisper-large-v3",
-            response_format="text",
-            language="vi"
+            response_format="verbose_json"
         )
 
-        meeting_text = transcription
+    st.success("✅ Đã chuyển giọng nói thành văn bản!")
 
-        st.success("Đã chuyển giọng nói thành văn bản!")
-        st.text_area("Nội dung chuyển đổi:", meeting_text, height=200)
+    text_output = transcription.text
 
-    except Exception as e:
-        st.error(f"Lỗi STT: {e}")
+    st.subheader("📄 Nội dung chuyển đổi:")
+    st.write(text_output)
 
-# ==============================
-# TẠO BIÊN BẢN BẰNG GEMINI
-# ==============================
-if st.button("📋 Tạo biên bản") and meeting_text:
+    # ====== TẠO BIÊN BẢN ======
+    if st.button("📋 Tạo biên bản"):
+        st.info("🤖 Đang tạo biên bản cuộc họp...")
 
-    model = genai.GenerativeModel("gemini-2.5-flash")
+        completion = client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Bạn là thư ký doanh nghiệp. Hãy tạo biên bản cuộc họp chuyên nghiệp, rõ ràng, có: Tổng quan, Thảo luận chính, Quyết định, Phân công nhiệm vụ."
+                },
+                {
+                    "role": "user",
+                    "content": text_output
+                }
+            ]
+        )
 
-    prompt = f"""
-    Bạn là thư ký doanh nghiệp chuyên nghiệp.
+        meeting_minutes = completion.choices[0].message.content
 
-    Thời gian họp: {formatted_time}
-
-    Hãy tạo biên bản gồm:
-    1. Tổng quan
-    2. Các quyết định chính
-    3. Nhiệm vụ được giao
-    4. Người phụ trách
-    5. Deadline (nếu có)
-
-    Loại bỏ từ đệm như: ờ, à, thì...
-    Viết chuyên nghiệp, rõ ràng.
-
-    Nội dung:
-    {meeting_text}
-    """
-
-    try:
-        result = model.generate_content(prompt)
-
-        st.subheader("📄 Biên bản cuộc họp")
-        st.write(result.text)
-
-    except Exception as e:
-        st.error(f"Lỗi tạo biên bản: {e}")
+        st.subheader("📝 Biên bản cuộc họp:")
+        st.write(meeting_minutes)
