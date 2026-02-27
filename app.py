@@ -15,7 +15,7 @@ from reportlab.lib.units import inch
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # Dùng model nhẹ hơn để tránh quota
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 FREE_LIMIT = 10
 
