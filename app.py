@@ -14,7 +14,7 @@ genai.configure(api_key=api_key)
 
 if st.button("Tạo biên bản") and meeting_text and api_key:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-pro")
+    model = genai.GenerativeModel("gemini-2.5-flash")
 
     prompt = f"""
     Bạn là thư ký doanh nghiệp chuyên nghiệp.
