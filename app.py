@@ -1,7 +1,5 @@
 import streamlit as st
 from groq import Groq
-import os
-from pydub import AudioSegment
 import tempfile
 
 st.set_page_config(page_title="AI Meeting Secretary", layout="centered")
@@ -18,30 +16,17 @@ uploaded_file = st.file_uploader("Chọn file audio", type=["mp3", "wav", "m4a"]
 
 if uploaded_file:
 
-    st.info("🔄 Đang chuẩn hóa audio về 16kHz mono...")
+    st.info("🎧 Đang chuyển giọng nói thành văn bản bằng Groq Whisper...")
 
-    # Save file tạm
+    # Lưu file tạm
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp.write(uploaded_file.read())
         tmp_path = tmp.name
 
-    # Convert sang 16kHz mono WAV
-    audio = AudioSegment.from_file(tmp_path)
-    audio = audio.set_frame_rate(16000).set_channels(1)
-
-    converted_path = tmp_path + "_converted.wav"
-    audio.export(converted_path, format="wav")
-
-    st.success("✅ Đã chuẩn hóa xong!")
-
-    # ====== TRANSCRIBE ======
-    st.info("🎧 Đang chuyển giọng nói thành văn bản bằng Groq Whisper...")
-
-    with open(converted_path, "rb") as audio_file:
+    with open(tmp_path, "rb") as audio_file:
         transcription = client.audio.transcriptions.create(
             file=audio_file,
-            model="whisper-large-v3",
-            response_format="verbose_json"
+            model="whisper-large-v3"
         )
 
     st.success("✅ Đã chuyển giọng nói thành văn bản!")
@@ -60,7 +45,7 @@ if uploaded_file:
             messages=[
                 {
                     "role": "system",
-                    "content": "Bạn là thư ký doanh nghiệp. Hãy tạo biên bản cuộc họp chuyên nghiệp, rõ ràng, có: Tổng quan, Thảo luận chính, Quyết định, Phân công nhiệm vụ."
+                    "content": "Bạn là thư ký doanh nghiệp. Hãy tạo biên bản cuộc họp chuyên nghiệp gồm: Tổng quan, Nội dung thảo luận, Quyết định, Phân công nhiệm vụ."
                 },
                 {
                     "role": "user",
