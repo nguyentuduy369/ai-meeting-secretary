@@ -9,7 +9,8 @@ st.write("Dán nội dung cuộc họp để tạo biên bản chuyên nghiệp.
 
 meeting_text = st.text_area("Nội dung cuộc họp", height=300)
 
-api_key = st.text_input("Nhập Gemini API Key", type="password")
+api_key = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=api_key)
 
 if st.button("Tạo biên bản") and meeting_text and api_key:
     genai.configure(api_key=api_key)
