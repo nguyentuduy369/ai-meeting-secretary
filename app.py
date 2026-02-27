@@ -13,7 +13,7 @@ import os
 # CẤU HÌNH TRANG
 # =============================
 st.set_page_config(
-    page_title="Thư Ký AI Doanh Nghiệp",
+    page_title="Thư Ký AI Chuẩn Doanh Nghiệp",
     page_icon="📄",
     layout="wide"
 )
@@ -22,16 +22,28 @@ st.title("📄 Thư Ký AI Chuẩn Doanh Nghiệp")
 st.write("Tạo biên bản họp chuyên nghiệp từ nội dung cuộc họp.")
 
 # =============================
-# API KEY
+# API KEY (ỔN ĐỊNH CLOUD + LOCAL)
 # =============================
+
+api_key = None
+
+# 1. Ưu tiên đọc từ Streamlit Secrets (Cloud)
 if "GOOGLE_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-else:
-    st.error("❌ Chưa cấu hình GOOGLE_API_KEY trong Secrets.")
+    api_key = st.secrets["GOOGLE_API_KEY"]
+
+# 2. Nếu không có thì đọc từ biến môi trường (Local)
+elif os.getenv("GOOGLE_API_KEY"):
+    api_key = os.getenv("GOOGLE_API_KEY")
+
+# 3. Nếu vẫn không có → báo lỗi rõ ràng
+if not api_key:
+    st.error("❌ Không tìm thấy GOOGLE_API_KEY. Vui lòng kiểm tra Secrets hoặc biến môi trường.")
     st.stop()
 
+genai.configure(api_key=api_key)
+
 # =============================
-# MODEL
+# MODEL GEMINI 2.5 FLASH
 # =============================
 model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -60,7 +72,7 @@ Yêu cầu:
 
 
 # =============================
-# HÀM TẠO PDF CHUẨN DOANH NGHIỆP
+# HÀM TẠO PDF CHUẨN DOANH NGHIỆP (KHÔNG LỖI FONT)
 # =============================
 def generate_enterprise_pdf(content_text):
 
@@ -77,10 +89,8 @@ def generate_enterprise_pdf(content_text):
 
     elements = []
 
-    # Đăng ký font Unicode có sẵn
+    # Đăng ký font Unicode có sẵn (không cần upload)
     pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
-
-    styles = getSampleStyleSheet()
 
     style_company = ParagraphStyle(
         name='Company',
@@ -116,7 +126,7 @@ def generate_enterprise_pdf(content_text):
     # NỘI DUNG
     paragraphs = content_text.split("\n")
     for p in paragraphs:
-        if p.strip() != "":
+        if p.strip():
             elements.append(Paragraph(p, style_normal))
             elements.append(Spacer(1, 6))
 
@@ -162,7 +172,6 @@ if st.button("🚀 Tạo Biên Bản"):
         st.subheader("📑 Biên Bản Họp")
         st.write(minutes)
 
-        # Lưu vào session để dùng tải PDF
         st.session_state["minutes"] = minutes
 
 
