@@ -3,18 +3,27 @@ import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
 from datetime import datetime
 import io
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    Image
+)
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase import pdfmetrics
 
 # ===============================
 # CONFIG
 # ===============================
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-
-# Dùng model nhẹ hơn để tránh quota
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 FREE_LIMIT = 10
@@ -39,6 +48,9 @@ if "history" not in st.session_state:
 st.sidebar.header("💳 Gói sử dụng")
 remaining = FREE_LIMIT - st.session_state.usage
 st.sidebar.write(f"Lượt miễn phí còn: {remaining}")
+
+if st.sidebar.button("Nâng cấp 99k/tháng"):
+    st.sidebar.success("Demo thanh toán thành công.")
 
 # ===============================
 # TEMPLATE
@@ -76,14 +88,14 @@ def transcribe_audio(file):
                     "mime_type": file.type,
                     "data": audio_bytes
                 },
-                "Chuyển audio thành văn bản tiếng Việt."
+                "Chuyển toàn bộ audio thành văn bản tiếng Việt rõ ràng."
             ]
         )
 
         return response.text
 
     except ResourceExhausted:
-        return "⚠️ Đã vượt quota Gemini. Vui lòng chờ vài phút rồi thử lại."
+        return "⚠️ Đã vượt quota Gemini. Vui lòng thử lại sau."
 
     except Exception as e:
         return f"Lỗi audio: {str(e)}"
@@ -99,14 +111,16 @@ def generate_minutes(text):
     prompt = f"""
 Bạn là thư ký doanh nghiệp chuyên nghiệp.
 
-Tạo biên bản họp cho loại: {template}
+Tạo biên bản họp chuẩn doanh nghiệp cho loại: {template}
 
-- Tạo bảng KPI
+Yêu cầu:
+- Trang trọng
+- Tạo bảng KPI rõ ràng
 - Tạo bảng phân công
 - Tự thêm deadline nếu có
-- Văn phong trang trọng
+- Trình bày rõ ràng từng mục
 
-Ngày: {today}
+Ngày họp: {today}
 
 Nội dung:
 {text}
@@ -117,10 +131,74 @@ Nội dung:
         return response.text
 
     except ResourceExhausted:
-        return "⚠️ Đã vượt quota Gemini. Vui lòng thử lại sau."
+        return "⚠️ Đã vượt quota Gemini."
 
     except Exception as e:
         return f"Lỗi AI: {str(e)}"
+
+# ===============================
+# EXPORT PDF DOANH NGHIỆP
+# ===============================
+
+def export_pdf(content):
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+
+    style = ParagraphStyle(
+        name='NormalStyle',
+        fontName='STSong-Light',
+        fontSize=11,
+        leading=16
+    )
+
+    title_style = ParagraphStyle(
+        name='TitleStyle',
+        fontName='STSong-Light',
+        fontSize=16,
+        leading=20
+    )
+
+    elements = []
+
+    # HEADER
+    elements.append(Paragraph("CÔNG TY CỔ PHẦN ABC", title_style))
+    elements.append(Spacer(1, 0.2 * inch))
+    elements.append(Paragraph("BIÊN BẢN HỌP", title_style))
+    elements.append(Spacer(1, 0.4 * inch))
+
+    # CONTENT
+    paragraphs = content.split("\n")
+
+    for p in paragraphs:
+        elements.append(Paragraph(p, style))
+        elements.append(Spacer(1, 0.15 * inch))
+
+    # FOOTER TABLE
+    elements.append(Spacer(1, 0.5 * inch))
+
+    footer_data = [
+        ["Chủ trì cuộc họp", "Thư ký cuộc họp"],
+        ["(Ký, ghi rõ họ tên)", "(Ký, ghi rõ họ tên)"]
+    ]
+
+    table = Table(footer_data, colWidths=[3 * inch, 3 * inch])
+
+    table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'STSong-Light'),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('LINEABOVE', (0, 0), (-1, 0), 1, colors.black)
+    ]))
+
+    elements.append(table)
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    return buffer
 
 # ===============================
 # MAIN BUTTON
@@ -151,23 +229,12 @@ if st.button("🚀 Tạo Biên Bản"):
             "content": result
         })
 
-        # EXPORT PDF
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        styles = getSampleStyleSheet()
-        elements = []
-
-        elements.append(Paragraph("<b>BIÊN BẢN HỌP</b>", styles["Title"]))
-        elements.append(Spacer(1, 0.5 * inch))
-        elements.append(Paragraph(result.replace("\n", "<br/>"), styles["Normal"]))
-
-        doc.build(elements)
-        buffer.seek(0)
+        pdf_file = export_pdf(result)
 
         st.download_button(
-            "⬇️ Tải PDF",
-            buffer,
-            file_name="Bien_Ban_Hop.pdf",
+            "⬇️ Tải PDF Chuẩn Doanh Nghiệp",
+            pdf_file,
+            file_name="Bien_Ban_Hop_Doanh_Nghiep.pdf",
             mime="application/pdf"
         )
 
