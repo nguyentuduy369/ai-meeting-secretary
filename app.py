@@ -1,55 +1,150 @@
 import streamlit as st
 import google.generativeai as genai
-import os
-import io
+from google.api_core.exceptions import ResourceExhausted
 from datetime import datetime
+import io
+import os
 
-# ===== REPORTLAB =====
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
-from reportlab.lib import colors
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    Image
+)
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib import pagesizes
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import inch
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 
+# ===============================
+# CONFIG
+# ===============================
 
-# ==============================
-# CONFIG API KEY (ỔN ĐỊNH)
-# ==============================
-def get_api_key():
-    if "GOOGLE_API_KEY" in st.secrets:
-        return st.secrets["GOOGLE_API_KEY"]
-    return os.getenv("GOOGLE_API_KEY")
-
-
-api_key = get_api_key()
-
-if not api_key:
-    st.error("Không tìm thấy GOOGLE_API_KEY. Vui lòng kiểm tra Secrets hoặc biến môi trường.")
-    st.stop()
-
-genai.configure(api_key=api_key)
-
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel("gemini-2.5-flash")
 
+FREE_LIMIT = 10
 
-# ==============================
-# HÀM TẠO PDF CHUẨN DOANH NGHIỆP
-# ==============================
-def generate_enterprise_pdf(content_text):
+st.set_page_config(page_title="Thư Ký AI SaaS", layout="centered")
+st.title("📑 Thư Ký AI SaaS PRO")
+
+# ===============================
+# SESSION
+# ===============================
+
+if "usage" not in st.session_state:
+    st.session_state.usage = 0
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# ===============================
+# SIDEBAR
+# ===============================
+
+st.sidebar.header("💳 Gói sử dụng")
+remaining = FREE_LIMIT - st.session_state.usage
+st.sidebar.write(f"Lượt miễn phí còn: {remaining}")
+
+if st.sidebar.button("Nâng cấp 99k/tháng"):
+    st.sidebar.success("Demo thanh toán thành công.")
+
+# ===============================
+# TEMPLATE
+# ===============================
+
+template = st.selectbox(
+    "Chọn loại cuộc họp:",
+    [
+        "Họp Marketing",
+        "Họp Nội Bộ",
+        "Họp Chiến Lược",
+        "Họp Startup",
+        "Họp Báo Cáo KPI"
+    ]
+)
+
+# ===============================
+# INPUT
+# ===============================
+
+meeting_text = st.text_area("Nhập nội dung cuộc họp:", height=200)
+audio_file = st.file_uploader("Tải file audio (.mp3, .wav)", type=["mp3", "wav"])
+
+# ===============================
+# AUDIO TRANSCRIBE
+# ===============================
+
+def transcribe_audio(file):
+    try:
+        audio_bytes = file.read()
+
+        response = model.generate_content(
+            [
+                {
+                    "mime_type": file.type,
+                    "data": audio_bytes
+                },
+                "Chuyển toàn bộ audio thành văn bản tiếng Việt rõ ràng."
+            ]
+        )
+
+        return response.text
+
+    except ResourceExhausted:
+        return "⚠️ Đã vượt quota Gemini. Vui lòng thử lại sau."
+
+    except Exception as e:
+        return f"Lỗi audio: {str(e)}"
+
+# ===============================
+# GENERATE MINUTES
+# ===============================
+
+def generate_minutes(text):
+
+    today = datetime.now().strftime("%d/%m/%Y")
+
+    prompt = f"""
+Bạn là thư ký doanh nghiệp chuyên nghiệp.
+
+Tạo biên bản họp chuẩn doanh nghiệp cho loại: {template}
+
+Yêu cầu:
+- Trang trọng
+- Tạo bảng KPI rõ ràng
+- Tạo bảng phân công
+- Tự thêm deadline nếu có
+- Trình bày rõ ràng từng mục
+
+Ngày họp: {today}
+
+Nội dung:
+{text}
+"""
+
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+
+    except ResourceExhausted:
+        return "⚠️ Đã vượt quota Gemini."
+
+    except Exception as e:
+        return f"Lỗi AI: {str(e)}"
+
+# ===============================
+# EXPORT PDF DOANH NGHIỆP (FIX FONT)
+# ===============================
+
+def export_pdf(content):
 
     buffer = io.BytesIO()
-
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=pagesizes.A4,
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=50,
-        bottomMargin=50
-    )
-
-    elements = []
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
 
     # ===== FIX FONT TIẾNG VIỆT =====
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -60,112 +155,104 @@ def generate_enterprise_pdf(content_text):
     else:
         font_name = "Helvetica"
 
-    # ===== STYLE =====
-    style_company = ParagraphStyle(
-        name="Company",
+    style = ParagraphStyle(
+        name='NormalStyle',
         fontName=font_name,
-        fontSize=14,
-        leading=18,
-        alignment=1,
-        spaceAfter=10
-    )
-
-    style_title = ParagraphStyle(
-        name="Title",
-        fontName=font_name,
-        fontSize=16,
-        leading=20,
-        alignment=1,
-        spaceAfter=20
-    )
-
-    style_normal = ParagraphStyle(
-        name="NormalVN",
-        fontName=font_name,
-        fontSize=12,
+        fontSize=11,
         leading=16
     )
 
-    # ===== HEADER =====
-    elements.append(Paragraph("<b>CÔNG TY CỔ PHẦN ABC</b>", style_company))
-    elements.append(Paragraph("<b>BIÊN BẢN HỌP</b>", style_title))
-    elements.append(HRFlowable(width="100%", thickness=1, color=colors.black))
-    elements.append(Spacer(1, 12))
+    title_style = ParagraphStyle(
+        name='TitleStyle',
+        fontName=font_name,
+        fontSize=16,
+        leading=20
+    )
 
-    # ===== NỘI DUNG =====
-    paragraphs = content_text.split("\n")
+    elements = []
+
+    # HEADER
+    elements.append(Paragraph("CÔNG TY CỔ PHẦN ABC", title_style))
+    elements.append(Spacer(1, 0.2 * inch))
+    elements.append(Paragraph("BIÊN BẢN HỌP", title_style))
+    elements.append(Spacer(1, 0.4 * inch))
+
+    # CONTENT
+    paragraphs = content.split("\n")
 
     for p in paragraphs:
-        elements.append(Paragraph(p, style_normal))
-        elements.append(Spacer(1, 6))
+        elements.append(Paragraph(p, style))
+        elements.append(Spacer(1, 0.15 * inch))
 
-    elements.append(Spacer(1, 20))
+    # FOOTER TABLE
+    elements.append(Spacer(1, 0.5 * inch))
 
-    # ===== CHỮ KÝ =====
-    signature_data = [
-        ["ĐẠI DIỆN CHỦ TRÌ", "", "THƯ KÝ"],
-        ["(Ký, ghi rõ họ tên)", "", "(Ký, ghi rõ họ tên)"]
+    footer_data = [
+        ["Chủ trì cuộc họp", "Thư ký cuộc họp"],
+        ["(Ký, ghi rõ họ tên)", "(Ký, ghi rõ họ tên)"]
     ]
 
-    signature_table = Table(signature_data, colWidths=[200, 50, 200])
+    table = Table(footer_data, colWidths=[3 * inch, 3 * inch])
 
-    signature_table.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("TOPPADDING", (0, 0), (-1, -1), 20),
-        ("FONTNAME", (0, 0), (-1, -1), font_name),
+    table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('LINEABOVE', (0, 0), (-1, 0), 1, colors.black)
     ]))
 
-    elements.append(signature_table)
+    elements.append(table)
 
     doc.build(elements)
-
     buffer.seek(0)
+
     return buffer
 
+# ===============================
+# MAIN BUTTON
+# ===============================
 
-# ==============================
-# UI
-# ==============================
-st.set_page_config(page_title="Thư Ký AI Chuẩn Doanh Nghiệp")
+if st.button("🚀 Tạo Biên Bản"):
 
-st.title("📄 Thư Ký AI Chuẩn Doanh Nghiệp")
-st.write("Tạo biên bản họp chuyên nghiệp từ nội dung cuộc họp.")
+    if remaining <= 0:
+        st.error("Bạn đã hết lượt miễn phí.")
+        st.stop()
 
-uploaded_file = st.file_uploader("Tải file nội dung cuộc họp (.txt)", type=["txt"])
+    if audio_file:
+        with st.spinner("Đang xử lý audio..."):
+            meeting_text = transcribe_audio(audio_file)
 
-if uploaded_file is not None:
+    if meeting_text:
 
-    text_content = uploaded_file.read().decode("utf-8")
+        with st.spinner("AI đang tạo biên bản..."):
+            result = generate_minutes(meeting_text)
 
-    with st.spinner("AI đang xử lý nội dung cuộc họp..."):
+        st.session_state.usage += 1
 
-        prompt = f"""
-        Bạn là Thư ký doanh nghiệp chuyên nghiệp.
+        st.subheader("📄 Biên Bản")
+        st.write(result)
 
-        Hãy tạo biên bản họp đầy đủ gồm:
-        - Thông tin cuộc họp
-        - Thành phần tham dự
-        - Nội dung thảo luận
-        - Kết luận
-        - Danh sách hành động (Action Items)
-        - Deadline rõ ràng
-        - Phân công trách nhiệm
+        st.session_state.history.append({
+            "time": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "content": result
+        })
 
-        Nội dung cuộc họp:
-        {text_content}
-        """
+        pdf_file = export_pdf(result)
 
-        response = model.generate_content(prompt)
-        meeting_minutes = response.text
+        st.download_button(
+            "⬇️ Tải PDF Chuẩn Doanh Nghiệp",
+            pdf_file,
+            file_name="Bien_Ban_Hop_Doanh_Nghiep.pdf",
+            mime="application/pdf"
+        )
 
-    st.subheader("📌 Biên bản họp")
-    st.text_area("", meeting_minutes, height=500)
+# ===============================
+# HISTORY
+# ===============================
 
-    pdf_buffer = generate_enterprise_pdf(meeting_minutes)
+st.divider()
+st.subheader("📚 Lịch sử họp")
 
-    st.download_button(
-        label="📥 Tải file PDF",
-        data=pdf_buffer,
-        file_name=f"Bien_Ban_Hop_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-        mime="application/pdf"
-    )
+for item in reversed(st.session_state.history):
+    with st.expander(item["time"]):
+        st.write(item["content"])
