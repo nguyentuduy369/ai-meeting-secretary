@@ -2,48 +2,85 @@ import streamlit as st
 import google.generativeai as genai
 import os
 from datetime import datetime
+import tempfile
 
-st.set_page_config(page_title="AI Thư Ký Cuộc Họp", layout="centered")
+# ==============================
+# CẤU HÌNH TRANG
+# ==============================
+st.set_page_config(page_title="AI Thư Ký Doanh Nghiệp", layout="centered")
 
-st.title("📝 AI Thư Ký Doanh Nghiệp")
+st.title("📝 AI Thư Ký Cuộc Họp")
+st.write("Ứng dụng tự động chuyển ghi âm thành biên bản chuyên nghiệp.")
 
-# Lấy API key từ Secrets
+# ==============================
+# LẤY API KEY
+# ==============================
 api_key = os.getenv("GEMINI_API_KEY")
 
-if api_key:
-    genai.configure(api_key=api_key)
+if not api_key:
+    st.error("Chưa cấu hình GEMINI_API_KEY trong Streamlit Secrets.")
+    st.stop()
 
-# Lấy thời gian hiện tại
+genai.configure(api_key=api_key)
+
+# ==============================
+# LẤY THỜI GIAN HIỆN TẠI
+# ==============================
 now = datetime.now()
 formatted_time = now.strftime("%H:%M, ngày %d/%m/%Y")
 
-st.subheader("Chọn cách nhập nội dung")
+st.subheader("Chọn nguồn dữ liệu")
 
-option = st.radio("Nguồn dữ liệu:", ["Dán nội dung", "Tải file ghi âm"])
+option = st.radio(
+    "Nguồn nội dung:",
+    ["Dán nội dung cuộc họp", "Tải file ghi âm"]
+)
 
 meeting_text = ""
 
-if option == "Dán nội dung":
-    meeting_text = st.text_area("Nội dung cuộc họp", height=300)
+# ==============================
+# NHẬP TEXT TRỰC TIẾP
+# ==============================
+if option == "Dán nội dung cuộc họp":
+    meeting_text = st.text_area("Nhập nội dung cuộc họp:", height=300)
 
+# ==============================
+# UPLOAD FILE GHI ÂM
+# ==============================
 elif option == "Tải file ghi âm":
-    uploaded_file = st.file_uploader("Tải file (.mp3, .wav, .m4a)", type=["mp3","wav","m4a"])
-    
-    if uploaded_file:
-        st.info("Đang xử lý file âm thanh...")
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        audio_bytes = uploaded_file.read()
-        
-        response = model.generate_content([
-            {"mime_type": uploaded_file.type, "data": audio_bytes},
-            "Chuyển toàn bộ nội dung âm thanh này thành văn bản tiếng Việt."
-        ])
-        
-        meeting_text = response.text
-        st.success("Đã chuyển giọng nói thành văn bản!")
-        st.text_area("Nội dung chuyển đổi", meeting_text, height=200)
+    uploaded_file = st.file_uploader(
+        "Tải file (.mp3, .wav, .m4a)",
+        type=["mp3", "wav", "m4a"]
+    )
 
-if st.button("Tạo biên bản") and meeting_text:
+    if uploaded_file is not None:
+        st.info("Đang xử lý file âm thanh...")
+
+        # Lưu file tạm
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            temp_path = tmp_file.name
+
+        try:
+            model = genai.GenerativeModel("gemini-2.5-flash")
+
+            response = model.generate_content([
+                genai.upload_file(temp_path),
+                "Hãy chuyển toàn bộ nội dung âm thanh này thành văn bản tiếng Việt rõ ràng, đúng ngữ cảnh."
+            ])
+
+            meeting_text = response.text
+
+            st.success("Đã chuyển giọng nói thành văn bản!")
+            st.text_area("Nội dung chuyển đổi:", meeting_text, height=200)
+
+        except Exception as e:
+            st.error(f"Lỗi xử lý audio: {e}")
+
+# ==============================
+# TẠO BIÊN BẢN
+# ==============================
+if st.button("📋 Tạo biên bản") and meeting_text:
 
     model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -52,21 +89,26 @@ if st.button("Tạo biên bản") and meeting_text:
 
     Thời gian họp: {formatted_time}
 
-    Hãy tạo biên bản gồm:
-    1. Tổng quan
-    2. Quyết định chính
+    Hãy tạo biên bản cuộc họp gồm các phần:
+
+    1. Tổng quan cuộc họp
+    2. Các quyết định chính
     3. Nhiệm vụ được giao
     4. Người phụ trách
     5. Deadline (nếu có)
 
-    Nội dung:
+    Loại bỏ các từ đệm như: ờ, à, thì, kiểu...
+    Viết lại ngắn gọn, chuyên nghiệp, rõ ràng.
+
+    Nội dung cuộc họp:
     {meeting_text}
     """
 
-    result = model.generate_content(prompt)
+    try:
+        result = model.generate_content(prompt)
 
-    st.subheader("📋 Biên bản cuộc họp")
-    st.write(result.text)
+        st.subheader("📄 Biên bản cuộc họp")
+        st.write(result.text)
 
-elif not api_key:
-    st.error("Chưa cấu hình GEMINI_API_KEY trong Streamlit Secrets.")
+    except Exception as e:
+        st.error(f"Lỗi tạo biên bản: {e}")
