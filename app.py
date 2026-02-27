@@ -145,7 +145,15 @@ def export_pdf(content):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
 
-    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    import os
+
+font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+if os.path.exists(font_path):
+    pdfmetrics.registerFont(TTFont("DejaVuSans", font_path))
+    font_name = "DejaVuSans"
+else:
+    font_name = "Helvetica"  # fallback local
 
     style = ParagraphStyle(
         name='NormalStyle',
